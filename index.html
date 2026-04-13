@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>🎯 打靶达人 Pro</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; }
+        body {
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            touch-action: manipulation; -webkit-user-select: none; user-select: none;
+        }
+
+        #game-container { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 500px; padding: 15px; }
+
+        /* Top Bar */
+        #top-bar { display: flex; justify-content: space-between; align-items: center; width: 100%; max-width: 400px; margin-bottom: 10px; }
+        #score-display { font-size: 22px; color: #fff; font-weight: bold; }
+        #timer-display { font-size: 20px; color: #ffd93d; font-weight: bold; }
+        #pause-btn { background: rgba(255,255,255,0.1); border: none; color: #fff; font-size: 20px; padding: 8px 15px; border-radius: 10px; cursor: pointer; }
+        #pause-btn:active { transform: scale(0.95); }
+
+        /* Combo Display */
+        #combo-display {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 48px; font-weight: bold; color: #ff6b6b; text-shadow: 0 0 20px #ff6b6b, 0 0 40px #ff6b6b;
+            pointer-events: none; opacity: 0; z-index: 100;
+            transition: opacity 0.2s;
+        }
+        #combo-display.show { opacity: 1; animation: comboPulse 0.3s ease; }
+        @keyframes comboPulse {
+            0% { transform: translate(-50%, -50%) scale(0.5); }
+            50% { transform: translate(-50%, -50%) scale(1.2); }
+            100% { transform: translate(-50%, -50%) scale(1); }
+        }
+
+        /* Game Box */
+        #game-box {
+            width: 100%; aspect-ratio: 1; max-width: 400px; max-height: 55vh;
+            background: linear-gradient(180deg, rgba(20,20,40,0.9), rgba(30,30,60,0.9));
+            border-radius: 20px; position: relative; overflow: hidden;
+            border: 3px solid rgba(255,255,255,0.15);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5), inset 0 0 60px rgba(100,100,200,0.1);
+            cursor: crosshair;
+        }
+        #game-box.shake { animation: shake 0.3s ease; }
+        @keyframes shake {
+            0%,100% { transform: translateX(0); }
+            20% { transform: translateX(-8px) rotate(-1deg); }
+            40% { transform: translateX(8px) rotate(1deg); }
+            60% { transform: translateX(-5px) rotate(-0.5deg); }
+            80% { transform: translateX(5px) rotate(0.5deg); }
+        }
+        #game-box.freeze { filter: hue-rotate(180deg) saturate(0.5); }
+
+        /* Particles */
+        .particle {
+            position: absolute; pointer-events: none; border-radius: 50%;
+            animation: particleFly 0.6s ease-out forwards;
+        }
+        @keyframes particleFly {
+            0% { transform: translate(0,0) scale(1); opacity: 1; }
+            100% { transform: translate(var(--dx), var(--dy)) scale(0); opacity: 0; }
+        }
+
+        /* Score Popup */
+        .score-pop {
+            position: absolute; font-size: 18px; font-weight: bold;
+            pointer-events: none; animation: scoreFloat 0.8s ease-out forwards;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            z-index: 50;
+        }
+        @keyframes scoreFloat {
+            0% { transform: translateY(0) scale(1); opacity: 1; }
+            100% { transform: translateY(-50px) scale(1.3); opacity: 0; }
+        }
+
+        /* Targets */
+        .target {
+            position: absolute; border-radius: 50%; display: flex;
+            align-items: center; justify-content: center;
+            animation: targetPop 0.25s ease;
+            -webkit-tap-highlight-color: transparent;
+            transition: transform 0.1s;
+        }
+        .target:active { transform: scale(0.85); }
+        .target.hit { animation: targetHit 0.3s ease forwards; pointer-events: none; }
+        .target.rare { box-shadow: 0 0 20px #a29bfe, 0 0 40px #6c5ce7; }
+        .target.legendary { box-shadow: 0 0 25px #ffd93d, 0 0 50px #f39c12; animation: targetPop 0.25s ease, legendaryGlow 1s ease infinite; }
+        .target.boss { width: 80px !important; height: 80px !important; font-size: 50px !important; }
+        .target.shielded::after {
+            content: '🛡️'; position: absolute; font-size: 16px; top: -5px; right: -5px;
+        }
+        @keyframes targetPop {
+            0% { transform: scale(0); opacity: 0; }
+            70% { transform: scale(1.1); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes targetHit {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.4); opacity: 0.8; }
+            100% { transform: scale(0); opacity: 0; }
+        }
+        @keyframes legendaryGlow {
+            0%,100% { filter: brightness(1); }
+            50% { filter: brightness(1.3); }
+        }
+
+        /* Power-up Bar */
+        #powerup-bar { display: flex; gap: 10px; margin: 10px 0; width: 100%; max-width: 400px; justify-content: center; }
+        .powerup-slot {
+            width: 50px; height: 50px; background: rgba(255,255,255,0.1);
+            border-radius: 12px; display: flex; align-items: center; justify-content: center;
+            font-size: 26px; border: 2px solid rgba(255,255,255,0.2);
+            transition: all 0.3s;
+        }
+        .powerup-slot.active { border-color: #ffd93d; background: rgba(255,217,61,0.2); box-shadow: 0 0 15px rgba(255,217,61,0.5); }
+        .powerup-slot.used { opacity: 0.3; }
+
+        /* Mode Select */
+        #mode-select { display: flex; flex-direction: column; align-items: center; gap: 15px; width: 100%; }
+        #mode-select h2 { color: #fff; font-size: 24px; margin-bottom: 5px; }
+        .mode-btn {
+            padding: 15px 50px; font-size: 16px; font-weight: bold;
+            background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+            color: white; border: none; border-radius: 25px; cursor: pointer;
+            box-shadow: 0 5px 20px rgba(108,92,231,0.4); transition: transform 0.2s;
+        }
+        .mode-btn:hover { transform: scale(1.05); }
+        .mode-btn:active { transform: scale(0.95); }
+        .mode-btn.endless { background: linear-gradient(135deg, #00b894, #00cec9); }
+        .mode-btn.challenge { background: linear-gradient(135deg, #e17055, #fdcb6e); }
+        .mode-btn.boss { background: linear-gradient(135deg, #d63031, #e17055); }
+
+        /* Game Over / Pause Overlay */
+        #overlay {
+            display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.85); border-radius: 20px; z-index: 200;
+            flex-direction: column; align-items: center; justify-content: center; color: #fff;
+        }
+        #overlay.show { display: flex; }
+        #overlay h2 { font-size: 28px; margin-bottom: 10px; }
+        #overlay .big-score { font-size: 56px; color: #ffd93d; font-weight: bold; margin: 10px 0; }
+        #overlay .info { color: rgba(255,255,255,0.7); margin-bottom: 5px; }
+        #overlay .achievements { display: flex; gap: 10px; margin: 15px 0; flex-wrap: wrap; justify-content: center; }
+        .badge { font-size: 30px; padding: 5px 10px; background: rgba(255,255,255,0.1); border-radius: 10px; }
+        .badge.locked { filter: grayscale(1); opacity: 0.4; }
+        .overlay-btns { display: flex; gap: 15px; margin-top: 20px; }
+        .overlay-btn {
+            padding: 12px 30px; font-size: 16px; border: none; border-radius: 20px;
+            cursor: pointer; font-weight: bold; transition: transform 0.2s;
+        }
+        .overlay-btn:active { transform: scale(0.95); }
+        .overlay-btn.primary { background: linear-gradient(135deg, #6c5ce7, #a29bfe); color: white; }
+        .overlay-btn.secondary { background: rgba(255,255,255,0.1); color: white; }
+
+        /* Level Progress */
+        #level-progress {
+            display: none; width: 100%; max-width: 400px; margin-bottom: 5px;
+            color: #fff; font-size: 14px; text-align: center;
+        }
+        #level-bar { width: 100%; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px; margin-top: 5px; }
+        #level-fill { height: 100%; background: linear-gradient(90deg, #6c5ce7, #a29bfe); border-radius: 3px; transition: width 0.3s; }
+
+        /* Achievements Panel */
+        #achievements-panel {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.95); border-radius: 20px; z-index: 300;
+            display: none; flex-direction: column; align-items: center; padding: 20px;
+            overflow-y: auto;
+        }
+        #achievements-panel.show { display: flex; }
+        #achievements-panel h2 { color: #ffd93d; margin-bottom: 15px; }
+        .ach-list { width: 100%; max-width: 350px; }
+        .ach-item {
+            display: flex; align-items: center; gap: 12px; padding: 12px;
+            background: rgba(255,255,255,0.05); border-radius: 10px; margin-bottom: 8px;
+        }
+        .ach-item.unlocked { background: rgba(255,217,61,0.1); border: 1px solid rgba(255,217,61,0.3); }
+        .ach-icon { font-size: 28px; }
+        .ach-info { flex: 1; }
+        .ach-name { color: #fff; font-weight: bold; font-size: 14px; }
+        .ach-desc { color: rgba(255,255,255,0.5); font-size: 12px; }
+        .ach-status { color: #ffd93d; font-size: 12px; }
+        .close-panel { position: absolute; top: 15px; right: 15px; font-size: 24px; background: none; border: none; color: #fff; cursor: pointer; }
+
+        /* Settings Panel */
+        #settings-panel {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.95); border-radius: 20px; z-index: 300;
+            display: none; flex-direction: column; align-items: center; padding: 20px;
+        }
+        #settings-panel.show { display: flex; }
+        #settings-panel h2 { color: #fff; margin-bottom: 20px; }
+        .setting-row { display: flex; justify-content: space-between; align-items: center; width: 100%; max-width: 300px; margin-bottom: 15px; color: #fff; }
+        .toggle { width: 50px; height: 26px; background: rgba(255,255,255,0.2); border-radius: 13px; cursor: pointer; position: relative; transition: background 0.3s; }
+        .toggle.on { background: #6c5ce7; }
+        .toggle::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; background: #fff; border-radius: 50%; transition: left 0.3s; }
+        .toggle.on::after { left: 27px; }
+
+        /* Instructions */
+        #instructions { font-size: 12px; color: rgba(255,255,255,0.5); margin-top: 10px; text-align: center; }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="top-bar">
+            <div id="score-display">🏆 <span id="score">0</span></div>
+            <div id="timer-display">⏱️ <span id="timer">60</span></div>
+            <button id="pause-btn">⏸️</button>
+        </div>
+        <div id="level-progress">
+            <span id="level-text">关卡 1/10</span>
+            <div id="level-bar"><div id="level-fill" style="width:0%"></div></div>
+        </div>
+        <div id="game-box">
+            <div id="combo-display"></div>
+            <div id="overlay">
+                <h2 id="overlay-title">游戏暂停</h2>
+                <div class="big-score" id="overlay-score">0</div>
+                <div class="info" id="overlay-info"></div>
+                <div class="achievements" id="overlay-achs"></div>
+                <div class="overlay-btns">
+                    <button class="overlay-btn primary" id="overlay-resume">▶️ 继续</button>
+                    <button class="overlay-btn secondary" id="overlay-menu">🏠 返回</button>
+                </div>
+            </div>
+        </div>
+        <div id="powerup-bar">
+            <div class="powerup-slot" id="pw-shield" title="护盾">🛡️</div>
+            <div class="powerup-slot" id="pw-double" title="双倍">✨</div>
+            <div class="powerup-slot" id="pw-slow" title="减速">❄️</div>
+            <div class="powerup-slot" id="pw-freeze" title="冰冻">🔒</div>
+        </div>
+        <div id="mode-select">
+            <h2>🎯 打靶达人 Pro</h2>
+            <button class="mode-btn endless" onclick="startGame('endless')">♾️ 无尽模式<br><small>60秒 · 挑战极限</small></button>
+            <button class="mode-btn challenge" onclick="startGame('challenge')">⚔️ 挑战模式<br><small>10关递进 · 难度升级</small></button>
+            <button class="mode-btn boss" onclick="startGame('boss')">👹 Boss模式<br><small>击打大目标 · 60秒</small></button>
+            <button class="overlay-btn secondary" onclick="showAchievements()" style="margin-top:10px">🏅 成就</button>
+            <button class="overlay-btn secondary" onclick="showSettings()" style="margin-top:5px">⚙️ 设置</button>
+        </div>
+        <div id="achievements-panel">
+            <button class="close-panel" onclick="hideAchievements()">✕</button>
+            <h2>🏅 成就徽章</h2>
+            <div class="ach-list" id="ach-list"></div>
+        </div>
+        <div id="settings-panel">
+            <button class="close-panel" onclick="hideSettings()">✕</button>
+            <h2>⚙️ 设置</h2>
+            <div class="setting-row">
+                <span>音效</span>
+                <div class="toggle on" id="toggle-sound" onclick="toggleSound()"></div>
+            </div>
+            <div class="setting-row">
+                <span>震动反馈</span>
+                <div class="toggle on" id="toggle-vibrate" onclick="toggleVibrate()"></div>
+            </div>
+            <div class="setting-row">
+                <span>显示分数飘字</span>
+                <div class="toggle on" id="toggle-scorepop" onclick="toggleScorePop()"></div>
+            </div>
+            <div class="setting-row">
+                <span>显示粒子效果</span>
+                <div class="toggle on" id="toggle-particles" onclick="toggleParticles()"></div>
+            </div>
+        </div>
+        <div id="instructions">点击目标得分 · ESC暂停 · 获得护盾免疫一次炸弹</div>
+    </div>
+
+<script>
+// ========== Game State ==========
+const G = {
+    mode: 'endless', score: 0, timeLeft: 60, gameRunning: false, paused: false,
+    combo: 0, maxCombo: 0, comboTimer: null,
+    shield: false, double: false, slow: false, freeze: false,
+    hasShieldThisRun: false, hitsThisRun: 0, damageTaken: 0,
+    level: 1, levelScore: 0, levelTarget: 100,
+    targets: [], spawnInterval: null, timerInterval: null,
+    highScores: { endless: 0, challenge: 0, boss: 0 },
+    achievements: {},
+    settings: { sound: true, vibrate: true, scorePop: true, particles: true },
+    bossHP: 3, bossHits: 0
+};
+
+// ========== LocalStorage ==========
+function loadData() {
+    try {
+        const d = JSON.parse(localStorage.getItem('shootingGameData') || '{}');
+        G.highScores = d.highScores || G.highScores;
+        G.achievements = d.achievements || G.achievements;
+        G.settings = { ...G.settings, ...d.settings };
+    } catch(e) {}
+    updateSettingsUI();
+}
+function saveData() {
+    localStorage.setItem('shootingGameData', JSON.stringify({
+        highScores: G.highScores, achievements: G.achievements, settings: G.settings
+    }));
+}
+function updateSettingsUI() {
+    document.getElementById('toggle-sound').className = 'toggle' + (G.settings.sound ? ' on' : '');
+    document.getElementById('toggle-vibrate').className = 'toggle' + (G.settings.vibrate ? ' on' : '');
+    document.getElementById('toggle-scorepop').className = 'toggle' + (G.settings.scorePop ? ' on' : '');
+    document.getElementById('toggle-particles').className = 'toggle' + (G.settings.particles ? ' on' : '');
+}
+
+// ========== Achievements ==========
+const ACHIEVEMENTS = [
+    { id: 'noDamage', name: '完美主义者', desc: '无伤通关任意模式', icon: '💎', condition: () => G.damageTaken === 0 && G.hitsThisRun >= 5 },
+    { id: 'combo50', name: '连击达人', desc: '达成50连击', icon: '🔥', condition: () => G.maxCombo >= 50 },
+    { id: 'combo100', name: '连击大师', desc: '达成100连击', icon: '⚡', condition: () => G.maxCombo >= 100 },
+    { id: 'score500', name: '初露锋芒', desc: '单局获得500分', icon: '🥉', condition: () => G.score >= 500 },
+    { id: 'score1000', name: '千分斩', desc: '单局获得1000分', icon: '🥈', condition: () => G.score >= 1000 },
+    { id: 'score2000', name: '两千分王', desc: '单局获得2000分', icon: '🥇', condition: () => G.score >= 2000 },
+    { id: 'score5000', name: '五千分传奇', desc: '单局获得5000分', icon: '👑', condition: () => G.score >= 5000 },
+    { id: 'challenge10', name: '关卡大师', desc: '通关挑战模式10关', icon: '🎖️', condition: () => G.achievements['challenge10'] },
+    { id: 'boss3', name: 'Boss猎手', desc: 'Boss模式一击通关', icon: '👹', condition: () => G.achievements['boss3'] },
+    { id: 'legendary10', name: '传奇猎人', desc: '击落10个传说目标', icon: '🌟', condition: (G.achievements['legendary10'] || 0) >= 10 },
+    { id: 'allPowerups', name: '全能选手', desc: '同时拥有全部4种道具', icon: '🎪', condition: () => G.shield && G.double && G.slow && G.freeze },
+    { id: 'legendary50', name: '传奇王者', desc: '累计击落50个传说目标', icon: '💫', condition: (G.achievements['legendary50'] || 0) >= 50 },
+];
+let newAchs = [];
+function checkAchievements() {
+    ACHIEVEMENTS.forEach(a => {
+        if (!G.achievements[a.id] && a.condition()) {
+            G.achievements[a.id] = true;
+            if (typeof G.achievements[a.id] === 'number') G.achievements[a.id]++;
+            newAchs.push(a.icon + ' ' + a.name);
+            if (a.id === 'legendary10') G.achievements['legendary10'] = (G.achievements['legendary10'] || 0) + 1;
+            if (a.id === 'legendary50') G.achievements['legendary50'] = (G.achievements['legendary50'] || 0) + 1;
+            if (a.id === 'boss3' && G.bossHits <= 3) G.achievements['boss3'] = true;
+        }
+    });
+    saveData();
+}
+function showAchievements() {
+    const list = document.getElementById('ach-list');
+    list.innerHTML = '';
+    ACHIEVEMENTS.forEach(a => {
+        const unlocked = G.achievements[a.id];
+        const div = document.createElement('div');
+        div.className = 'ach-item' + (unlocked ? ' unlocked' : '');
+        let status = '';
+        if (a.id === 'legendary10' || a.id === 'legendary50') {
+            const n = G.achievements[a.id] || 0;
+            const total = a.id === 'legendary10' ? 10 : 50;
+            status = `${n}/${total}`;
+        } else if (typeof unlocked === 'number') {
+            status = unlocked;
+        }
+        div.innerHTML = `<span class="ach-icon">${a.icon}</span>
+            <div class="ach-info"><div class="ach-name">${a.name}</div><div class="ach-desc">${a.desc}</div></div>
+            <span class="ach-status">${unlocked ? '✓' : status}</span>`;
+        list.appendChild(div);
+    });
+    document.getElementById('achievements-panel').classList.add('show');
+}
+function hideAchievements() { document.getElementById('achievements-panel').classList.remove('show'); }
+function showSettings() { document.getElementById('settings-panel').classList.add('show'); }
+function hideSettings() { document.getElementById('settings-panel').classList.remove('show'); }
+function toggleSound() { G.settings.sound = !G.settings.sound; updateSettingsUI(); saveData(); }
+function toggleVibrate() { G.settings.vibrate = !G.settings.vibrate; updateSettingsUI(); saveData(); }
+function toggleScorePop() { G.settings.scorePop = !G.settings.scorePop; updateSettingsUI(); saveData(); }
+function toggleParticles() { G.settings.particles = !G.settings.particles; updateSettingsUI(); saveData(); }
+
+// ========== Sound ==========
+function playSound(type) {
+    if (!G.settings.sound) return;
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        switch(type) {
+            case 'hit': osc.frequency.value = 600; gain.gain.setValueAtTime(0.15, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1); break;
+            case 'rare': osc.frequency.value = 800; gain.gain.setValueAtTime(0.2, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15); break;
+            case 'legendary': osc.frequency.value = 1000; gain.gain.setValueAtTime(0.25, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2); break;
+            case 'bomb': osc.frequency.value = 150; osc.type = 'sawtooth'; gain.gain.setValueAtTime(0.3, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3); break;
+            case 'powerup': osc.frequency.value = 1200; gain.gain.setValueAtTime(0.15, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2); break;
+            case 'combo': osc.frequency.value = 900; gain.gain.setValueAtTime(0.1, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.08); break;
+        }
+        osc.start(); osc.stop(ctx.currentTime + 0.3);
+    } catch(e) {}
+}
+function vibrate(dur) {
+    if (G.settings.vibrate && navigator.vibrate) navigator.vibrate(dur);
+}
+
+// ========== DOM ==========
+const $ = id => document.getElementById(id);
+const box = $('game-box');
+const scoreEl = $('score');
+const timerEl = $('timer');
+const comboEl = $('combo-display');
+const overlay = $('overlay');
+const modeSelect = $('mode-select');
+const levelProgress = $('level-progress');
+
+// ========== Start Game ==========
+function startGame(mode) {
+    G.mode = mode; G.score = 0; G.combo = 0; G.maxCombo = 0; G.hitsThisRun = 0; G.damageTaken = 0;
+    G.shield = false; G.double = false; G.slow = false; G.freeze = false; G.hasShieldThisRun = false;
+    G.level = 1; G.levelScore = 0; G.levelTarget = 100; newAchs = []; G.bossHP = 3; G.bossHits = 0;
+    G.gameRunning = true; G.paused = false;
+
+    scoreEl.textContent = '0';
+    box.innerHTML = '<div id="combo-display"></div>';
+    modeSelect.style.display = 'none';
+    overlay.classList.remove('show');
+    box.classList.remove('freeze');
+    updatePowerups();
+
+    if (mode === 'endless') {
+        G.timeLeft = 60; timerEl.textContent = '60';
+        levelProgress.style.display = 'none';
+        G.spawnInterval = setInterval(spawnTarget, 600);
+    } else if (mode === 'challenge') {
+        G.timeLeft = 60; timerEl.textContent = '60';
+        levelProgress.style.display = 'block';
+        updateLevelDisplay();
+        G.spawnInterval = setInterval(spawnTarget, 700);
+    } else if (mode === 'boss') {
+        G.timeLeft = 60; timerEl.textContent = '60';
+        levelProgress.style.display = 'none';
+        spawnBoss();
+        G.spawnInterval = setInterval(spawnTarget, 400);
+    }
+
+    G.timerInterval = setInterval(tick, 1000);
+    spawnTarget();
+}
+
+function tick() {
+    if (!G.gameRunning || G.paused) return;
+    G.timeLeft--;
+    timerEl.textContent = G.timeLeft;
+
+    if (G.mode === 'challenge') {
+        G.levelScore = G.score;
+        const prevLevel = G.level;
+        G.level = Math.floor(G.score / 150) + 1;
+        if (G.level > 10) G.level = 10;
+        G.levelTarget = G.level * 150;
+        if (G.level > prevLevel) updateLevelDisplay();
+        updateLevelBar();
+    }
+
+    if (G.timeLeft <= 0) endGame();
+}
+
+function updateLevelDisplay() {
+    $('level-text').textContent = `关卡 ${G.level}/10 · ${G.levelScore}/${G.levelTarget}分`;
+}
+function updateLevelBar() {
+    const pct = Math.min(100, (G.levelScore / G.levelTarget) * 100);
+    $('level-fill').style.width = pct + '%';
+}
+
+// ========== Target Spawning ==========
+function spawnTarget() {
+    if (!G.gameRunning || G.paused) return;
+    if (G.targets.length >= (G.mode === 'boss' ? 8 : 6)) return;
+
+    const t = document.createElement('div');
+    t.className = 'target';
+
+    const roll = Math.random();
+    const isBossTarget = G.mode === 'boss' && roll < 0.15;
+    let type, size, points, bg, txt;
+
+    if (isBossTarget) {
+        type = 'boss'; size = 75; points = 100; bg = 'radial-gradient(circle, #e74c3c, #c0392b)';
+        txt = '👹'; t.classList.add('boss');
+    } else if (roll < 0.05) {
+        type = 'legendary'; size = 42; points = 50; bg = 'radial-gradient(circle, #f1c40f, #f39c12)';
+        txt = '💎'; t.classList.add('legendary');
+    } else if (roll < 0.15) {
+        type = 'rare'; size = 44; points = 25; bg = 'radial-gradient(circle, #9b59b6, #8e44ad)';
+        txt = '⭐'; t.classList.add('rare');
+    } else if (roll < 0.25) {
+        type = 'bomb'; size = 40; points = -30; bg = 'radial-gradient(circle, #2c3e50, #1a252f)';
+        txt = '💣';
+    } else if (roll < 0.35 && !G.shield && !G.hasShieldThisRun) {
+        type = 'shield'; size = 38; points = 0; bg = 'radial-gradient(circle, #3498db, #2980b9)';
+        txt = '🛡️'; t.classList.add('shielded');
+    } else {
+        type = 'normal'; size = 45; points = 10; bg = 'radial-gradient(circle, #e74c3c, #c0392b)';
+        const normals = ['🎯','🔥','💫','🌟','🍎','👾','🎁','🎪','🌈','🦋'];
+        txt = normals[Math.floor(Math.random() * normals.length)];
+    }
+
+    const speedMult = G.slow ? 2 : 1;
+    const lifetime = (2000 + Math.random() * 1500) / speedMult;
+
+    t.dataset.type = type; t.dataset.points = points;
+    t.style.width = size + 'px'; t.style.height = size + 'px';
+    t.style.fontSize = (size * 0.55) + 'px';
+    t.style.background = bg;
+
+    const rect = box.getBoundingClientRect();
+    const maxX = rect.width - size - 8;
+    const maxY = rect.height - size - 8;
+    t.style.left = (Math.random() * maxX) + 'px';
+    t.style.top = (Math.random() * maxY) + 'px';
+
+    const hit = (e) => {
+        if (t.classList.contains('hit')) return;
+        e.preventDefault(); e.stopPropagation();
+        t.classList.add('hit');
+        handleHit(t, type, points);
+    };
+
+    t.addEventListener('click', hit);
+    t.addEventListener('touchstart', hit, { passive: false });
+
+    const existTimer = setTimeout(() => {
+        if (!t.classList.contains('hit') && t.parentNode) {
+            t.style.opacity = '0';
+            setTimeout(() => t.remove(), 250);
+        }
+    }, lifetime);
+    t.dataset.timer = existTimer;
+
+    box.appendChild(t);
+    G.targets.push(t);
+}
+
+function spawnBoss() {
+    const t = document.createElement('div');
+    t.className = 'target boss';
+    t.dataset.type = 'boss'; t.dataset.points = 100;
+    t.style.width = '80px'; t.style.height = '80px';
+    t.style.fontSize = '50px';
+    t.style.background = 'radial-gradient(circle, #e74c3c, #c0392b)';
+    t.textContent = '👹';
+    t.style.left = '50%'; t.style.top = '50%';
+    t.style.transform = 'translate(-50%, -50%)';
+
+    const hit = (e) => {
+        if (t.classList.contains('hit')) return;
+        e.preventDefault(); e.stopPropagation();
+        t.classList.add('hit');
+        G.bossHits++;
+        handleHit(t, 'boss', 100);
+        vibrate(50);
+        setTimeout(() => {
+            if (G.gameRunning) { box.removeChild(t); spawnBoss(); }
+        }, 500);
+    };
+    t.addEventListener('click', hit);
+    t.addEventListener('touchstart', hit, { passive: false });
+    box.appendChild(t);
+    G.targets.push(t);
+}
+
+// ========== Handle Hit ==========
+function handleHit(t, type, basePoints) {
+    if (G.paused) return;
+    const rect = box.getBoundingClientRect();
+
+    if (type === 'shield') {
+        G.shield = true; G.hasShieldThisRun = true;
+        playSound('powerup'); vibrate(30);
+        showScorePop(t, '🛡️', '#3498db');
+        updatePowerups();
+        setTimeout(() => t.remove(), 300);
+        G.hitsThisRun++;
+        return;
+    }
+
+    if (type === 'bomb') {
+        if (G.shield) {
+            G.shield = false; G.hasShieldThisRun = true;
+            playSound('powerup'); vibrate(50);
+            showScorePop(t, '🛡️免疫!', '#3498db');
+            updatePowerups();
+        } else {
+            const dmg = G.double ? 0 : -30;
+            G.score = Math.max(0, G.score + dmg);
+            G.damageTaken++;
+            G.combo = 0;
+            updateCombo();
+            playSound('bomb'); vibrate(100);
+            box.classList.add('shake');
+            setTimeout(() => box.classList.remove('shake'), 300);
+            showScorePop(t, '-30', '#e74c3c');
+        }
+        setTimeout(() => t.remove(), 300);
+        return;
+    }
+
+    // Normal/Rare/Legendary/Boss hit
+    G.hitsThisRun++;
+    G.combo++;
+    if (G.combo > G.maxCombo) G.maxCombo = G.combo;
+    clearTimeout(G.comboTimer);
+    G.comboTimer = setTimeout(() => { G.combo = 0; updateCombo(); }, 1500);
+    updateCombo();
+
+    let pts = G.double ? basePoints * 2 : basePoints;
+    pts += Math.floor(G.combo * 0.5); // Combo bonus
+    G.score += pts;
+    scoreEl.textContent = G.score;
+
+    if (G.mode === 'challenge') {
+        G.levelScore = G.score;
+        updateLevelBar();
+        updateLevelDisplay();
+    }
+
+    // Sound
+    if (type === 'legendary' || type === 'boss') { playSound('legendary'); vibrate(40); }
+    else if (type === 'rare') { playSound('rare'); vibrate(20); }
+    else playSound('hit');
+
+    // Effects
+    const clr = type === 'legendary' ? '#f1c40f' : type === 'rare' ? '#9b59b6' : '#2ecc71';
+    if (G.settings.particles) createParticles(t, type);
+    if (G.settings.scorePop) showScorePop(t, '+' + pts, clr);
+
+    // Legendary tracking
+    if (type === 'legendary') {
+        G.achievements['legendary10'] = (G.achievements['legendary10'] || 0) + 1;
+        G.achievements['legendary50'] = (G.achievements['legendary50'] || 0) + 1;
+    }
+
+    checkAchievements();
+    setTimeout(() => t.remove(), 300);
+}
+
+// ========== Particles ==========
+function createParticles(t, type) {
+    const rect = t.getBoundingClientRect();
+    const boxRect = box.getBoundingClientRect();
+    const cx = rect.left - boxRect.left + rect.width / 2;
+    const cy = rect.top - boxRect.top + rect.height / 2;
+    const count = type === 'legendary' ? 16 : type === 'rare' ? 12 : 8;
+    const colors = type === 'legendary' ? ['#f1c40f','#f39c12','#fff'] :
+                   type === 'rare' ? ['#9b59b6','#8e44ad','#fff'] :
+                   ['#e74c3c','#c0392b','#fff'];
+
+    for (let i = 0; i < count; i++) {
+        const p = document.createElement('div');
+        p.className = 'particle';
+        const angle = (Math.PI * 2 * i) / count;
+        const dist = 40 + Math.random() * 40;
+        const dx = Math.cos(angle) * dist;
+        const dy = Math.sin(angle) * dist;
+        const sz = 4 + Math.random() * 6;
+        p.style.cssText = `left:${cx}px;top:${cy}px;width:${sz}px;height:${sz}px;
+            background:${colors[i % colors.length]};--dx:${dx}px;--dy:${dy}px;
+            box-shadow:0 0 ${sz}px ${colors[i % colors.length]}`;
+        box.appendChild(p);
+        setTimeout(() => p.remove(), 600);
+    }
+}
+
+// ========== Score Popup ==========
+function showScorePop(t, text, color) {
+    const pop = document.createElement('div');
+    pop.className = 'score-pop';
+    pop.textContent = text;
+    pop.style.color = color;
+    pop.style.left = t.style.left;
+    pop.style.top = t.style.top;
+    pop.style.fontSize = '20px';
+    box.appendChild(pop);
+    setTimeout(() => pop.remove(), 800);
+}
+
+// ========== Combo ==========
+function updateCombo() {
+    const el = document.getElementById('combo-display');
+    if (!el) return;
+    if (G.combo >= 3) {
+        el.textContent = G.combo + 'x COMBO!';
+        el.classList.add('show');
+        if (G.combo % 10 === 0) playSound('combo');
+    } else {
+        el.classList.remove('show');
+    }
+}
+
+// ========== Power-ups ==========
+function updatePowerups() {
+    $('pw-shield').className = 'powerup-slot' + (G.shield ? ' active' : G.hasShieldThisRun ? ' used' : '');
+    $('pw-double').className = 'powerup-slot' + (G.double ? ' active' : '');
+    $('pw-slow').className = 'powerup-slot' + (G.slow ? ' active' : '');
+    $('pw-freeze').className = 'powerup-slot' + (G.freeze ? ' active' : '');
+}
+
+// ========== End Game ==========
+function endGame() {
+    G.gameRunning = false;
+    clearInterval(G.timerInterval);
+    clearInterval(G.spawnInterval);
+
+    // Clear remaining targets
+    G.targets.forEach(t => { if (t.parentNode) t.remove(); });
+    G.targets = [];
+
+    // Update high scores
+    if (G.score > (G.highScores[G.mode] || 0)) {
+        G.highScores[G.mode] = G.score;
+    }
+
+    // Challenge mode progression
+    if (G.mode === 'challenge' && G.level >= 10) {
+        G.achievements['challenge10'] = true;
+    }
+
+    checkAchievements();
+    saveData();
+
+    // Show overlay
+    let title = '⏰ 时间到!';
+    let info = `最高分: ${G.highScores[G.mode]}`;
+    if (G.mode === 'challenge' && G.level >= 10) title = '🎉 挑战成功!';
+    if (G.mode === 'boss' && G.score >= 500) title = '👹 Boss击杀!';
+
+    $('overlay-title').textContent = title;
+    $('overlay-score').textContent = G.score;
+    $('overlay-info').textContent = info;
+
+    // Show new achievements
+    const achDiv = $('overlay-achs');
+    achDiv.innerHTML = '';
+    newAchs.forEach(a => {
+        const s = document.createElement('span');
+        s.className = 'badge'; s.textContent = a;
+        achDiv.appendChild(s);
+    });
+
+    $('overlay-resume').textContent = '🔄 再来一局';
+    $('overlay-resume').onclick = () => startGame(G.mode);
+    $('overlay-menu').onclick = returnToMenu;
+    overlay.classList.add('show');
+}
+
+function returnToMenu() {
+    overlay.classList.remove('show');
+    modeSelect.style.display = 'flex';
+    levelProgress.style.display = 'none';
+    box.classList.remove('freeze');
+}
+
+// ========== Pause ==========
+function togglePause() {
+    if (!G.gameRunning) return;
+    G.paused = !G.paused;
+
+    if (G.paused) {
+        clearInterval(G.timerInterval);
+        clearInterval(G.spawnInterval);
+        $('pause-btn').textContent = '▶️';
+        $('overlay-title').textContent = '⏸️ 游戏暂停';
+        $('overlay-score').textContent = G.score;
+        $('overlay-info').textContent = '';
+        $('overlay-achs').innerHTML = '';
+        $('overlay-resume').textContent = '▶️ 继续';
+        $('overlay-resume').onclick = togglePause;
+        $('overlay-menu').onclick = () => { G.gameRunning = false; returnToMenu(); };
+        overlay.classList.add('show');
+    } else {
+        $('pause-btn').textContent = '⏸️';
+        overlay.classList.remove('show');
+        G.timerInterval = setInterval(tick, 1000);
+        const delay = G.slow ? 400 : G.mode === 'boss' ? 400 : 600;
+        G.spawnInterval = setInterval(spawnTarget, delay);
+    }
+}
+
+$('pause-btn').addEventListener('click', togglePause);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && G.gameRunning) togglePause(); });
+
+// ========== Power-up activation (click on icons) ==========
+['shield','double','slow','freeze'].forEach(pw => {
+    $(`pw-${pw}`).addEventListener('click', () => {
+        if (!G.gameRunning || G.paused) return;
+        if (G[pw]) return; // Already active
+
+        G[pw] = true;
+        if (pw === 'freeze') {
+            box.classList.add('freeze');
+            setTimeout(() => { G.freeze = false; box.classList.remove('freeze'); updatePowerups(); }, 3000);
+        } else if (pw === 'slow') {
+            clearInterval(G.spawnInterval);
+            G.spawnInterval = setInterval(spawnTarget, 800);
+            setTimeout(() => {
+                if (G.gameRunning && !G.paused) {
+                    G.slow = false;
+                    clearInterval(G.spawnInterval);
+                    G.spawnInterval = setInterval(spawnTarget, 600);
+                    updatePowerups();
+                }
+            }, 5000);
+        } else {
+            setTimeout(() => { G[pw] = false; updatePowerups(); }, 8000);
+        }
+
+        playSound('powerup'); vibrate(30);
+        updatePowerups();
+    });
+});
+
+// ========== Init ==========
+loadData();
+</script>
+</body>
+</html>
