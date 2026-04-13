@@ -283,7 +283,8 @@ const G = {
     highScores: { endless: 0, challenge: 0, boss: 0 },
     achievements: {},
     settings: { sound: true, vibrate: true, scorePop: true, particles: true },
-    bossHP: 3, bossHits: 0
+    bossHP: 3, bossHits: 0,
+    targetTimers: []
 };
 
 // ========== LocalStorage ==========
@@ -512,6 +513,8 @@ function spawnTarget() {
         if (t.classList.contains('hit')) return;
         e.preventDefault(); e.stopPropagation();
         t.classList.add('hit');
+        // Clear the exist timer to prevent double-removal
+        if (t._existTimer) clearTimeout(t._existTimer);
         handleHit(t, type, points);
     };
 
@@ -521,10 +524,14 @@ function spawnTarget() {
     const existTimer = setTimeout(() => {
         if (!t.classList.contains('hit') && t.parentNode) {
             t.style.opacity = '0';
-            setTimeout(() => t.remove(), 250);
+            setTimeout(() => {
+                t.remove();
+                const idx = G.targets.indexOf(t);
+                if (idx > -1) G.targets.splice(idx, 1);
+            }, 250);
         }
     }, lifetime);
-    t.dataset.timer = existTimer;
+    t._existTimer = existTimer;
 
     box.appendChild(t);
     G.targets.push(t);
